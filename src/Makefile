@@ -79,7 +79,7 @@ FORMAT = ihex
 
 
 # Target file name (without extension).
-TARGET = fancntrl
+TARGET = fanctrl
 
 
 # Object files directory
@@ -231,7 +231,7 @@ PRINTF_LIB_FLOAT = -Wl,-u,vfprintf -lprintf_flt
 
 # If this is left blank, then it will use the Standard printf version.
 PRINTF_LIB = 
-#PRINTF_LIB = $(PRINTF_LIB_MIN)
+PRINTF_LIB = $(PRINTF_LIB_MIN)
 #PRINTF_LIB = $(PRINTF_LIB_FLOAT)
 
 
@@ -243,7 +243,7 @@ SCANF_LIB_FLOAT = -Wl,-u,vfscanf -lscanf_flt
 
 # If this is left blank, then it will use the Standard scanf version.
 SCANF_LIB = 
-#SCANF_LIB = $(SCANF_LIB_MIN)
+SCANF_LIB = $(SCANF_LIB_MIN)
 #SCANF_LIB = $(SCANF_LIB_FLOAT)
 
 
@@ -294,7 +294,7 @@ LDFLAGS += $(LIBS)
 AVRDUDE_PROGRAMMER = stk500v2
 
 # com1 = serial port. Use lpt1 to connect to parallel port.
-AVRDUDE_PORT = com6    # programmer connected to serial device
+AVRDUDE_PORT = /dev/ttyACM0    # programmer connected to serial device
 
 AVRDUDE_WRITE_FLASH = -U flash:w:$(TARGET).hex
 #AVRDUDE_WRITE_EEPROM = -U eeprom:w:$(TARGET).eep
