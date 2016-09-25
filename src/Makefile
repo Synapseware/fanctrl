@@ -71,7 +71,7 @@ E_FUSE = 0xFF
 #         F_CPU = 16000000
 #         F_CPU = 18432000
 #         F_CPU = 20000000
-F_CPU = 96000000
+F_CPU = 16000000
 
 
 # Output format. (can be srec, ihex, binary)
@@ -79,7 +79,7 @@ FORMAT = ihex
 
 
 # Target file name (without extension).
-TARGET = sepic
+TARGET = fancntrl
 
 
 # Object files directory
