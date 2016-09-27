@@ -1,16 +1,16 @@
 #include "fanctrl.h"
 
 //----------------------------------------------------------------
-// Fast PWM on OC1A/PB1
+// Fast PWM on OC1B/PB2
 static void initPWM(void)
 {
 	TCCR1	=   (1<<CTC1)	|
 				(1<<PWM1A)  |
 				(0<<COM1A1) |
 				(0<<COM1A0) |
-				(0<<CS13)	|		// clk/1
+				(0<<CS13)	|		// clk/16
 				(1<<CS12)	|
-				(1<<CS11)	|
+				(0<<CS11)	|
 				(1<<CS10);
 
 	GTCCR	|=  (1<<PWM1B)  |
@@ -26,9 +26,37 @@ static void initPWM(void)
 				(0<<PLOCK);
 
 	OCR1C	=	F_MAX;		        // in this mode, counter restarts on OCR1C
-	OCR1B	=	F_MAX;		        // PWM value
+	OCR1B	=	0;		        	// PWM value
 
 	DDRB	|=	(1<<PWM_PIN);	    // enable OC1B I/O
+}
+
+
+//----------------------------------------------------------------
+// Slow PWM on OC0A/PB0
+static void initPWMAlt(void)
+{
+	GTCCR	=	(0<<TSM)	|
+				(0<<PSR0);
+
+	TCCR0A	=	(1<<COM0A1)	|	// 
+				(0<<COM0A0)	|
+				(0<<COM0B1)	|
+				(0<<COM0B0)	|
+				(1<<WGM01)	|	// FastPWM
+				(1<<WGM00);
+
+	TCCR0B	=	(0<<FOC0A)	|
+				(0<<FOC0B)	|
+				(0<<WGM02)	|	// FastPWM
+				(0<<CS02)	|
+				(0<<CS01)	|
+				(0<<CS00);
+
+	TIMSK	=	(0<<OCIE0A)	|
+				(0<<OCIE0B)	|
+				(0<<TOIE0);
+
 }
 
 
@@ -105,15 +133,13 @@ ISR(ADC_vect)
 {
 	uint8_t sample	= ADCH;
 
-	uint8_t result = sample; // (uint8_t) (sample * SCALE);
+	uint8_t result = (uint8_t) ((float)sample * SCALE);
 
 	// set bounds
-    /*
 	if (result > MAX)
 		result = MAX;
-	else if (result < 1)
-		result = 1;
-    */
+	else if (result < MIN)
+		result = MIN;
 
 	// take ADC reading and set PWM output to that value
 	OCR1B = result;
