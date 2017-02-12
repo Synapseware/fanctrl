@@ -1,67 +1,10 @@
 #include "fanctrl.h"
 
-//----------------------------------------------------------------
-// Fast PWM on OC1B/PB2
-static void initPWM(void)
-{
-	TCCR1	=   (1<<CTC1)	|
-				(1<<PWM1A)  |
-				(0<<COM1A1) |
-				(0<<COM1A0) |
-				(0<<CS13)	|		// clk/16
-				(1<<CS12)	|
-				(0<<CS11)	|
-				(1<<CS10);
-
-	GTCCR	|=  (1<<PWM1B)  |
-				(1<<COM1B1) |       // enable OC1B
-				(0<<COM1B0) |
-				(0<<FOC1B)  |
-				(0<<FOC1A)  |
-				(0<<PSR1);
-
-	PLLCSR	=   (0<<LSM)	|
-				(1<<PCKE)	|		// use 64MHz PLL for clock source
-				(1<<PLLE)	|
-				(0<<PLOCK);
-
-	OCR1C	=	F_MAX;		        // in this mode, counter restarts on OCR1C
-	OCR1B	=	0;		        	// PWM value
-
-	DDRB	|=	(1<<PWM_PIN);	    // enable OC1B I/O
-}
-
+static uint8_t lastADC = 255;
+static uint8_t tick = 0;
 
 //----------------------------------------------------------------
-// Slow PWM on OC0A/PB0
-static void initPWMAlt(void)
-{
-	GTCCR	=	(0<<TSM)	|
-				(0<<PSR0);
-
-	TCCR0A	=	(1<<COM0A1)	|	// 
-				(0<<COM0A0)	|
-				(0<<COM0B1)	|
-				(0<<COM0B0)	|
-				(1<<WGM01)	|	// FastPWM
-				(1<<WGM00);
-
-	TCCR0B	=	(0<<FOC0A)	|
-				(0<<FOC0B)	|
-				(0<<WGM02)	|	// FastPWM
-				(0<<CS02)	|
-				(0<<CS01)	|
-				(0<<CS00);
-
-	TIMSK	=	(0<<OCIE0A)	|
-				(0<<OCIE0B)	|
-				(0<<TOIE0);
-
-}
-
-
-//----------------------------------------------------------------
-// Setup ADC to read trimpot on ADC2/PB4
+// Setup ADC to read from the temp sensor
 static void initADC(void)
 {
 	ADMUX	=   (0<<REFS2)  |   // Vcc as Vref
@@ -94,6 +37,52 @@ static void initADC(void)
 
 
 //----------------------------------------------------------------
+// Setup timer0 for 1mS
+static void initSystemTimer(void)
+{
+	TCCR0A	=	(0<<COM0A1)	|	// 
+				(0<<COM0A0)	|	// 
+				(0<<COM0B1)	|	// 
+				(0<<COM0B0)	|	// 
+				(1<<WGM01)	|	// CTC
+				(0<<WGM00);		// CTC
+
+	TCCR0B	=	(0<<FOC0A)	|	// 
+				(0<<FOC0B)	|	// 
+				(0<<WGM02)	|	// CTC
+				(1<<CS02)	|	// Fcpu/256
+				(0<<CS01)	|	// ...
+				(0<<CS00);		// ...
+
+	TIMSK	|=	(1<<OCIE0A)	|	// Overflow on CTC
+				(0<<OCIE0B)	|	// 
+				(0<<TOIE0);		// 
+
+	OCR0A	=	249;			// 1mS cycle
+}
+
+
+//----------------------------------------------------------------
+// Setup the USI for SPI mode
+static void initSPI(void)
+{
+	USICR	=	(0<<USISIE) |	// 
+				(0<<USIOIE) |	// 
+				(0<<USIWM1) |	// 
+				(1<<USIWM0) |	// 3-wire mode
+				(0<<USICS1) |	// 
+				(0<<USICS0) |	// 
+				(1<<USICLK) |	// software strobe
+				(0<<USITC);		// 
+
+
+	// configure the /CS pin for output
+	PORTB |= (1<<SPI_CS);
+	DDRB |= (1<<SPI_CS);
+}
+
+
+//----------------------------------------------------------------
 // 
 static void init(void)
 {
@@ -101,11 +90,55 @@ static void init(void)
     power_timer0_enable();
     power_timer1_enable();
 
-	initPWM();
+    TIMSK	= 0;
+    GTCCR	= 0;
+
+	initSystemTimer();
 
 	initADC();
 
+	initSPI();
+
 	sei();
+}
+
+
+//----------------------------------------------------------------
+// Writes a byte of data to the SPI bus
+static uint8_t writeByte(uint8_t data)
+{
+	USIDR	=	data;
+	data	=	(1<<USIOIF);
+	USISR	=	data;
+
+	data	=	(1<<USIWM0) |
+				(1<<USICS1) |
+				(1<<USICLK) |
+				(1<<USITC);
+
+	// clock out the data
+	while(1)
+	{
+		USICR = data;
+		if ((USISR & (1<<USIOIF)) != 0)
+			break;
+	}
+
+	// return the data
+	return USIDR;
+}
+
+
+//----------------------------------------------------------------
+// Configures the digital resistor to the given value
+static void setResistorValue(uint8_t value)
+{
+	PORTB &= ~(1<<SPI_CS);
+
+	writeByte(MCP_WRITE_WP0);
+	writeByte(value);
+
+	PORTB |= (1<<SPI_CS);
 }
 
 
@@ -120,7 +153,14 @@ int main(void)
 
 	while(1)
 	{
-		// NO-OP
+		if (!tick)
+			continue;
+
+		// dump the last ADC reading to the digital pot
+		// smarts to come later...
+		setResistorValue(lastADC);
+
+		tick = 0;
 	}
 
 	return 0;
@@ -131,16 +171,20 @@ int main(void)
 // ADC interrupt complete handler
 ISR(ADC_vect)
 {
-	uint8_t sample	= ADCH;
+	lastADC	= ADCH;
+}
 
-	uint8_t result = (uint8_t) ((float)sample * SCALE);
 
-	// set bounds
-	if (result > MAX)
-		result = MAX;
-	else if (result < MIN)
-		result = MIN;
+//----------------------------------------------------------------
+// TIMER0 COMPA interrupt handler
+ISR(TIM0_COMPA_vect)
+{
+	static uint8_t counter = 0;
 
-	// take ADC reading and set PWM output to that value
-	OCR1B = result;
+	counter++;
+	if (counter < 10)
+		return;
+
+	tick = 1;
+	counter = 0;
 }
