@@ -7,17 +7,21 @@
 #include <inttypes.h>
 #include <avr/sleep.h>
 #include <avr/power.h>
+#include <util/delay.h>
 
 
-const uint8_t		MAX			= 145; //(uint8_t)(F_MAX * 0.90);
-const uint8_t		MIN			= 2;
-
+//--------------------------------------------------
+// Board constants
 #define	ADC_IN		ADC3D
 #define ADC_PIN		PB3
+
 #define SPI_CS		PB4
+#define SPI_DO		PB1
+#define SPI_DI		PB0
+#define SPI_CLK		PB2
 
-
-// MCP41x1 command bits
+//--------------------------------------------------
+// MCP41x1 driver data
 #define MCP_A3		7
 #define MCP_A2		6
 #define MCP_A1		5

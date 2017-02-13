@@ -1,7 +1,8 @@
 #include "fanctrl.h"
 
-static uint8_t lastADC = 255;
-static uint8_t tick = 0;
+uint8_t lastADC		= 255;
+uint8_t tick		= 0;
+
 
 //----------------------------------------------------------------
 // Setup ADC to read from the temp sensor
@@ -37,9 +38,13 @@ static void initADC(void)
 
 
 //----------------------------------------------------------------
-// Setup timer0 for 1mS
+// Setup timer0
 static void initSystemTimer(void)
 {
+	// Fcpu = 6.4MHz
+	// 		Fcpu / 1024 = 6250
+	//		6250 / 250 = 25
+
 	TCCR0A	=	(0<<COM0A1)	|	// 
 				(0<<COM0A0)	|	// 
 				(0<<COM0B1)	|	// 
@@ -50,15 +55,15 @@ static void initSystemTimer(void)
 	TCCR0B	=	(0<<FOC0A)	|	// 
 				(0<<FOC0B)	|	// 
 				(0<<WGM02)	|	// CTC
-				(1<<CS02)	|	// Fcpu/256
+				(1<<CS02)	|	// FCPU/1024
 				(0<<CS01)	|	// ...
-				(0<<CS00);		// ...
+				(1<<CS00);		// ...
 
 	TIMSK	|=	(1<<OCIE0A)	|	// Overflow on CTC
 				(0<<OCIE0B)	|	// 
 				(0<<TOIE0);		// 
 
-	OCR0A	=	249;			// 1mS cycle
+	OCR0A	=	250-1;			// 25Hz
 }
 
 
@@ -77,8 +82,9 @@ static void initSPI(void)
 
 
 	// configure the /CS pin for output
-	PORTB |= (1<<SPI_CS);
-	DDRB |= (1<<SPI_CS);
+	PORTB |= (1<<SPI_CS) | (1<<SPI_DO) | (1<<SPI_CLK);
+	DDRB |= (1<<SPI_CS) | (1<<SPI_DO) | (1<<SPI_CLK);
+	//DDRB &= ~(1<<SPI_DI);
 }
 
 
@@ -89,9 +95,6 @@ static void init(void)
     power_adc_enable();
     power_timer0_enable();
     power_timer1_enable();
-
-    TIMSK	= 0;
-    GTCCR	= 0;
 
 	initSystemTimer();
 
@@ -149,18 +152,19 @@ int main(void)
 	init();
 
 	// start the first conversion
-	ADCSRA |= (1<<ADSC);
+	//ADCSRA |= (1<<ADSC);
 
 	while(1)
 	{
-		if (!tick)
-			continue;
+		//if (tick == 0)
+		//	continue;
+		tick = 0;
+
+		PINB |= (1<<SPI_CS);
+		_delay_ms(5);
 
 		// dump the last ADC reading to the digital pot
-		// smarts to come later...
 		setResistorValue(lastADC);
-
-		tick = 0;
 	}
 
 	return 0;
@@ -177,14 +181,7 @@ ISR(ADC_vect)
 
 //----------------------------------------------------------------
 // TIMER0 COMPA interrupt handler
-ISR(TIM0_COMPA_vect)
+ISR(TIMER0_COMPA_vect)
 {
-	static uint8_t counter = 0;
-
-	counter++;
-	if (counter < 10)
-		return;
-
 	tick = 1;
-	counter = 0;
 }
