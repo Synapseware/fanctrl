@@ -1,5 +1,5 @@
-#ifndef __SEPIC_H__
-#define __SEPIC_H__
+#ifndef __FANCTRL_H__
+#define __FANCTRL_H__
 
 
 #include <avr/io.h>
@@ -12,13 +12,18 @@
 
 //--------------------------------------------------
 // Board constants
-#define	ADC_IN		ADC3D
-#define ADC_PIN		PB3
+#define	ADC_IN		ADC0D
+#define ADC_PIN		PC3
 
-#define SPI_CS		PB4
-#define SPI_DO		PB1
-#define SPI_DI		PB0
-#define SPI_CLK		PB2
+#define LED_DBG		PB0
+
+#define SPI_CLK		PB5
+#define SPI_DI		PB4
+#define SPI_DO		PB3
+#define SPI_CS		PB2
+#define SPI_DDR		DDRB
+#define SPI_PORT	PORTB
+
 
 //--------------------------------------------------
 // MCP41x1 driver data

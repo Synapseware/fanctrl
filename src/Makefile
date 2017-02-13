@@ -45,7 +45,7 @@
 
 
 # MCU name
-MCU = m168
+MCU = atmega168
 
 # Fuse values
 L_FUSE = 0xE2
