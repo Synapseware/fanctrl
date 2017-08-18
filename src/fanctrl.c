@@ -1,7 +1,29 @@
 #include "fanctrl.h"
 
-volatile int lastADC	= 0;
-volatile uint8_t tick	= 0;
+volatile uint8_t	tick		= 0;
+volatile uint8_t 	adcData		= 0;
+
+
+
+//----------------------------------------------------------------
+// Gets the MUX configuration bits for the specified channel
+static void ConfigureADC(uint8_t channel)
+{
+	channel &= 0x07;
+
+	// get the MUX value 
+	uint8_t mux =	(ADMUX & 0xF0) |	// mask out the channel bits
+					(channel);			// set the channel
+
+	// disable digital input on the selected channel
+	DIDR0 = (1<<channel);
+
+	// set the pin as input
+	DDRC &= ~(1<<channel);
+
+	// set the MUX register
+	ADMUX = mux;
+}
 
 
 //----------------------------------------------------------------
@@ -9,35 +31,28 @@ volatile uint8_t tick	= 0;
 // voltage is 2.5V
 static void initADC(void)
 {
-	ADMUX	=	(0<<REFS1)	|	// ARef (2.5V)
-				(0<<REFS0)	|	// ARef 
-				(0<<ADLAR)	|	// No left adjust
-				(0<<MUX3)	|	// ADC0
-				(0<<MUX2)	|	// ...
-				(0<<MUX1)	|	// ...
-				(0<<MUX0);		// ...
+	ConfigureADC(ADC_CHANNEL);
+
+	ADMUX	|=	(0<<ADLAR);		// Right adjust result
 
 	ADCSRA	=	(1<<ADEN)	|	// ADC Enable
 				(0<<ADSC)	|	// 
 				(0<<ADATE)	|	// 
 				(0<<ADIF)	|	// 
 				(1<<ADIE)	|	// Enable interrupts
-				(1<<ADPS2)	|	// Prescaler of 128
-				(1<<ADPS1)	|	// 8MHz / 128 = 62.5kHz ADC clock
-				(1<<ADPS0);		// 
+				(1<<ADPS2)	|	// Prescaler of 64
+				(1<<ADPS1)	|	// 8MHz / 64 = 125kHz ADC clock
+				(0<<ADPS0);		// ...
 
 	ADCSRB	=	(0<<ACME)	|	// Disable the analog comparator
 				(0<<ADTS2)	|	// Free running mode
 				(0<<ADTS1)	|	// ...
 				(0<<ADTS0);		// ...
-
-	DIDR0	=	(1<<ADC_IN);	// Analog input on ADC0
-	DDRC	&=	~(1<<ADC_PIN);	// Set pin as input
 }
 
 
 //----------------------------------------------------------------
-// Setup timer0
+// Setup timer1
 static void initSystemTimer(void)
 {
 	// FCPU / 256 / 3125 = 10Hz
@@ -112,24 +127,18 @@ static void init(void)
 
 //----------------------------------------------------------------
 // Converts the value from the temperature sensor to degrees C
-static uint8_t ConvertTempToCelcius(int temp)
+static int ConvertToCelcius(int temp)
 {
 	// Temperature sensor is a TMP35
-	// Scale is 10mV/C
-	// Range is 10c to 125c
-	// 10c	=  100mV
-	// 25c	=  250mV
-	// 90c	=  900mV
-	// 100c	= 1000mV
 
 	// ADC is configured to read the 8 most significant bits only
 	// ADC value = (Vin * 1024) / Vref
 	//			Vin * 1024
 	// result = ----------
-	//			   2.5v
+	//			   5.0v
 	//
 
-	return 255 - ((uint8_t) temp);
+	return temp;
 }
 
 
@@ -150,14 +159,33 @@ static uint8_t writeByte(uint8_t data)
 
 //----------------------------------------------------------------
 // Configures the digital resistor to the given value
-static void setResistorValue(uint8_t value)
+static void setResistorValue(int value)
 {
 	SPI_PORT &= ~(1<<SPI_CS);
 
+	// we only need the top 7 bits
+	value >>= 3;
+
 	writeByte(MCP_WRITE_WP0);
-	writeByte(value);
+	writeByte(value & 0x7F);
 
 	SPI_PORT |= (1<<SPI_CS);
+}
+
+
+//----------------------------------------------------------------
+// 
+static uint8_t GetLatestAdcData(void)
+{
+	return adcData;
+}
+
+
+//----------------------------------------------------------------
+// Smooths the ADC value by averaging readings
+static void SmoothADCValue(int value)
+{
+	adcData = (value>>2) + adcData - (adcData>>2);
 }
 
 
@@ -178,15 +206,19 @@ int main(void)
 		if (!tick)
 			continue;
 
-		PINB |= (1<<LED_DBG);
+		// toggle the debug LED
+		//PINB |= (1<<LED_DBG);
+		PORTB |= (1<<LED_DBG);
 
-		uint8_t temp = ConvertTempToCelcius(lastADC);
+		// convert the ADC data to Celcius
+		uint8_t temp = ConvertToCelcius(GetLatestAdcData());
 
-		// dump the last ADC reading to the digital pot
+		// update the resistor ladder with new data
 		setResistorValue(temp);
 
-		// reset the ticker
+		// reset the tick
 		tick = 0;
+		PORTB &= ~(1<<LED_DBG);
 	}
 
 	return 0;
@@ -197,8 +229,8 @@ int main(void)
 // ADC interrupt complete handler
 ISR(ADC_vect)
 {
-	// read the full ADC value
-	lastADC	= ADC;
+	// just read the ADCH register (top 8 bits)
+	SmoothADCValue(ADC);
 }
 
 
@@ -206,7 +238,12 @@ ISR(ADC_vect)
 // Timer 1 compare A interrupt handler
 ISR(TIMER1_COMPA_vect)
 {
-	//PINB |= (1<<LED_DBG);
+	static uint8_t delay = DELAY;
+
+	if (delay--)
+		return;
+
+	delay = DELAY;
 
 	tick = 1;
 
