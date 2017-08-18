@@ -9,42 +9,17 @@ volatile uint8_t 	adcData		= 0;
 // Gets the MUX configuration bits for the specified channel
 static void ConfigureADC(uint8_t channel)
 {
+	channel &= 0x07;
+
 	// get the MUX value 
 	uint8_t mux =	(ADMUX & 0xF0) |	// mask out the channel bits
-					(channel & 0x07);	// set the channel
+					(channel);			// set the channel
 
-	switch (channel)
-	{
-		case 0:
-			DIDR0 = (1<<ADC0D);
-			DDRC &= ~(1<<PC0);
-			break;
-		case 1:
-			DIDR0 = (1<<ADC1D);
-			DDRC &= ~(1<<PC1);
-			break;
-		case 2:
-			DIDR0 = (1<<ADC2D);
-			DDRC &= ~(1<<PC2);
-			break;
-		case 3:
-			DIDR0 = (1<<ADC3D);
-			DDRC &= ~(1<<PC3);
-			break;
-		case 4:
-			DIDR0 = (1<<ADC4D);
-			DDRC &= ~(1<<PC4);
-			break;
-		case 5:
-			DIDR0 = (1<<ADC5D);
-			DDRC &= ~(1<<PC5);
-			break;
-		case 0x0E:	// 1.1v reference
-		case 0x0F:	// 0v - GND
-			break;
-		default:
-			return;
-	}
+	// disable digital input on the selected channel
+	DIDR0 = (1<<channel);
+
+	// set the pin as input
+	DDRC &= ~(1<<channel);
 
 	// set the MUX register
 	ADMUX = mux;
@@ -58,16 +33,16 @@ static void initADC(void)
 {
 	ConfigureADC(ADC_CHANNEL);
 
-	ADMUX	|=	(1<<ADLAR);		// Left adjust result
+	ADMUX	|=	(0<<ADLAR);		// Right adjust result
 
 	ADCSRA	=	(1<<ADEN)	|	// ADC Enable
 				(0<<ADSC)	|	// 
 				(0<<ADATE)	|	// 
 				(0<<ADIF)	|	// 
 				(1<<ADIE)	|	// Enable interrupts
-				(1<<ADPS2)	|	// Prescaler of 128
-				(1<<ADPS1)	|	// 8MHz / 128 = 62.5kHz ADC clock
-				(1<<ADPS0);		// 
+				(1<<ADPS2)	|	// Prescaler of 64
+				(1<<ADPS1)	|	// 8MHz / 64 = 125kHz ADC clock
+				(0<<ADPS0);		// ...
 
 	ADCSRB	=	(0<<ACME)	|	// Disable the analog comparator
 				(0<<ADTS2)	|	// Free running mode
@@ -77,7 +52,7 @@ static void initADC(void)
 
 
 //----------------------------------------------------------------
-// Setup timer0
+// Setup timer1
 static void initSystemTimer(void)
 {
 	// FCPU / 256 / 3125 = 10Hz
@@ -188,8 +163,11 @@ static void setResistorValue(int value)
 {
 	SPI_PORT &= ~(1<<SPI_CS);
 
+	// we only need the top 7 bits
+	value >>= 3;
+
 	writeByte(MCP_WRITE_WP0);
-	writeByte(value >> 1);
+	writeByte(value & 0x7F);
 
 	SPI_PORT |= (1<<SPI_CS);
 }
@@ -205,10 +183,9 @@ static uint8_t GetLatestAdcData(void)
 
 //----------------------------------------------------------------
 // Smooths the ADC value by averaging readings
-static void SmoothADCValue(uint8_t value)
+static void SmoothADCValue(int value)
 {
-	//adcData = (value>>2) + adcData - (adcData>>2);
-	adcData = value;
+	adcData = (value>>2) + adcData - (adcData>>2);
 }
 
 
@@ -230,7 +207,8 @@ int main(void)
 			continue;
 
 		// toggle the debug LED
-		PINB |= (1<<LED_DBG);
+		//PINB |= (1<<LED_DBG);
+		PORTB |= (1<<LED_DBG);
 
 		// convert the ADC data to Celcius
 		uint8_t temp = ConvertToCelcius(GetLatestAdcData());
@@ -240,6 +218,7 @@ int main(void)
 
 		// reset the tick
 		tick = 0;
+		PORTB &= ~(1<<LED_DBG);
 	}
 
 	return 0;
@@ -251,7 +230,7 @@ int main(void)
 ISR(ADC_vect)
 {
 	// just read the ADCH register (top 8 bits)
-	SmoothADCValue(ADCH);
+	SmoothADCValue(ADC);
 }
 
 
@@ -259,6 +238,13 @@ ISR(ADC_vect)
 // Timer 1 compare A interrupt handler
 ISR(TIMER1_COMPA_vect)
 {
+	static uint8_t delay = DELAY;
+
+	if (delay--)
+		return;
+
+	delay = DELAY;
+
 	tick = 1;
 
 	// start another ADC conversion

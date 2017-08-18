@@ -12,8 +12,9 @@
 
 //--------------------------------------------------
 // Board constants
-#define	ADC_CHANNEL		1
+#define	ADC_CHANNEL		0
 #define ADC_SMOOTHING	4
+#define DELAY			10
 
 
 #define LED_DBG			PB0
